@@ -8,7 +8,7 @@ For a detailed description of the architecture please read [paper](https://arxiv
 - atari_py >=0.1.7
 - cv2 >= 3.4.2
 
-###TODO
+### TODO
 - experiment's results
 - Distributed Training
 - other games such as dmlab
