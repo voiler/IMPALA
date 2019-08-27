@@ -6,8 +6,6 @@
 """Actor to generate trajactories"""
 
 import torch
-import torch.multiprocessing as mp
-from env import Environment
 from model import Network
 
 
@@ -54,57 +52,65 @@ class Trajectory(object):
         return "ok"
 
 
-class Actor(mp.Process):
+def reset(conn):
+    conn.send([0, 0])
+    return conn.recv()
+
+
+def step(conn, actions):
+    conn.send([1, actions])
+    return conn.recv()
+
+
+def close(conn):
+    conn.send([2, None])
+    conn.close()
+    print("Environment closed")
+
+
+def actor(idx, ps, data, conn, args):
     """Simple actor """
+    steps = 0
+    length = args.length
+    action_space = args.action_space
+    model = Network(action_space=action_space)
+    hx = torch.zeros((2, 1, 256), dtype=torch.float32)
+    # save_path = args.save_path
+    # load_path = args.load_path
 
-    def __init__(self, idx, g_net, data, env_args, action_space, length, save_path, load_path):
-        super().__init__()
-        self.id = idx
-        self.data = data
-        self.steps = 0
-        self.length = length
-        self.env = Environment(env_args)
-        self.action_space = action_space
-        self.g_net = g_net
-        self.model = Network(action_space=self.action_space)
-        self.hx = torch.zeros((2, 1, 256), dtype=torch.float32)
-        self.rewards = 0
-        self.save_path = save_path
-        self.load_path = load_path
-
-    def run(self):
-        """Run the env for n steps and return a trajectory rollout."""
-        done = torch.tensor(True, dtype=torch.uint8).view(1, 1)
-
-        while True:
-            print("actor {} Trajectory steps {}".format(self.id, self.steps))
-            self.model.load_state_dict(self.g_net.state_dict())
-            rollout = Trajectory()
-            rollout.actor_id = self.id
-            rollout.lstm_hx = self.hx.squeeze()
-            total_reward = 0
-            with torch.no_grad():
-                while True:
-                    if rollout.length == self.length:
-                        self.rewards += total_reward
-                        rollout.finish()
-                        self.data.put(rollout)
-                        break
-                    if done:
-                        self.rewards = 0
-                        self.steps = 0
-                        obs = self.env.reset()
-                        self.hx = torch.zeros((2, 1, 256), dtype=torch.float32)
-                        logits = torch.zeros((1, self.action_space), dtype=torch.float32)
-                        last_action = torch.zeros((1, 1), dtype=torch.int64)
-                        reward = torch.tensor(0, dtype=torch.float32).view(1, 1)
-                        rollout.append(obs, last_action, reward, done, logits)
-                    action, logits, hx = self.model(obs.unsqueeze(0), last_action, reward,
-                                                    done, self.hx, actor=True)
-                    obs, reward, done = self.env.step(action)
-                    total_reward += reward
-                    last_action = torch.tensor(action, dtype=torch.int64).view(1, 1)
-                    reward = torch.tensor(reward, dtype=torch.float32).view(1, 1)
-                    done = torch.tensor(done, dtype=torch.uint8).view(1, 1)
-                    rollout.append(obs, last_action, reward, done, logits.detach())
-                    self.steps += 1
+    """Run the env for n steps and return a trajectory rollout."""
+    done = torch.tensor(True, dtype=torch.bool).view(1, 1)
+    rewards = 0
+    while True:
+        print("Actor: {} Steps: {} Reward: {}".format(idx, steps, rewards))
+        model.load_state_dict(ps.pull())
+        rollout = Trajectory()
+        rollout.actor_id = idx
+        rollout.lstm_hx = hx.squeeze()
+        total_reward = 0
+        with torch.no_grad():
+            while True:
+                if rollout.length == length:
+                    rewards += total_reward
+                    rollout.finish()
+                    data.put(rollout)
+                    break
+                if done:
+                    rewards = 0.
+                    steps = 0
+                    obs = reset(conn)
+                    hx = torch.zeros((2, 1, 256), dtype=torch.float32)
+                    logits = torch.zeros((1, action_space), dtype=torch.float32)
+                    last_action = torch.zeros((1, 1), dtype=torch.int64)
+                    reward = torch.tensor(0, dtype=torch.float32).view(1, 1)
+                    rollout.append(obs, last_action, reward, done, logits)
+                action, logits, hx = model(obs.unsqueeze(0), last_action, reward,
+                                           done, hx, actor=True)
+                obs, reward, done = step(conn, action)
+                total_reward += reward
+                last_action = torch.tensor(action, dtype=torch.int64).view(1, 1)
+                reward = torch.tensor(reward, dtype=torch.float32).view(1, 1)
+                done = torch.tensor(done, dtype=torch.bool).view(1, 1)
+                rollout.append(obs, last_action, reward, done, logits.detach())
+                steps += 1
+    close(conn)

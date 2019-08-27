@@ -165,9 +165,9 @@ def from_importance_weights(
     """
 
     if clip_rho_threshold is not None:
-        clip_rho_threshold = torch.tensor(clip_rho_threshold, dtype=torch.float32)
+        clip_rho_threshold = torch.tensor(clip_rho_threshold, dtype=torch.float32, device=log_rhos.device)
     if clip_pg_rho_threshold is not None:
-        clip_pg_rho_threshold = torch.tensor(clip_pg_rho_threshold, dtype=torch.float32)
+        clip_pg_rho_threshold = torch.tensor(clip_pg_rho_threshold, dtype=torch.float32, device=log_rhos.device)
 
     # Make sure tensor ranks are consistent.
     rho_rank = len(log_rhos.shape)  # Usually 2.

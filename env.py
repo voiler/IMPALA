@@ -1,7 +1,5 @@
 import random
 from collections import deque
-from functools import partial
-import torch.multiprocessing as mp
 import atari_py
 import torch
 import cv2
@@ -95,81 +93,16 @@ class Env:
     def action_space(self):
         return len(self.actions)
 
-    def render(self):
-        from gym.envs.classic_control import rendering
-        if self.viewer is None:
-            self.viewer = rendering.SimpleImageViewer()
-        self.viewer.imshow(self.ale.getScreenRGB2())
-        return self.viewer.isopen
-
-        # cv2.imshow('screen', self.ale.getScreenRGB()[:, :, ::-1])
-        # cv2.waitKey(1)
-
     def close(self):
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None
 
 
-def worker(conn, env):
-    env = env.x()
-    while True:
-        command, arg = conn.recv()
-        if command == COMMAND_RESET:
-            obs = env.reset()
-            conn.send(obs)
-        elif command == COMMAND_STEP:
-            obs, reward, terminal = env.step(arg)
-            conn.send([obs, reward, terminal])
-        elif command == COMMAND_TERMINATE:
-            break
-        else:
-            print("bad command: {}".format(command))
-    env.close()
-    conn.close()
 
 
-class CloudpickleWrapper(object):
-    def __init__(self, x):
-        self.x = x
-
-    def __getstate__(self):
-        import cloudpickle
-        return cloudpickle.dumps(self.x)
-
-    def __setstate__(self, ob):
-        import pickle
-        self.x = pickle.loads(ob)
 
 
-class Environment(object):
-    def __init__(self, env_args):
-        super(Environment, self).__init__()
-        env = partial(Env, **env_args)
-        self.env_args = env_args
-        self.conn, child_conn = mp.Pipe()
-        self.proc = mp.Process(target=worker, args=(child_conn, CloudpickleWrapper(env)))
-        self.proc.start()
 
-    @staticmethod
-    def get_action_size(env_args):
-        env = Env(**env_args)
-        action_size = env.action_space()
-        env.close()
-        del env
-        return action_size
 
-    def reset(self):
-        self.conn.send([COMMAND_RESET, 0])
-        return self.conn.recv()
 
-    def close(self):
-        self.conn.send([COMMAND_TERMINATE, None])
-        self.conn.close()
-        self.proc.join()
-        print("Environment closed")
-
-    def step(self, actions):
-        self.conn.send([COMMAND_STEP, actions])
-        state, reward, terminal = self.conn.recv()
-        return state, reward, terminal

@@ -1,15 +1,17 @@
 import argparse
-import torch.multiprocessing as _mp
 
-from env import Environment
-from learner import Learner
+import torch
+
 from model import Network
-from actor import Actor
+import torch.multiprocessing as mp
+from learner import learner
+from actor import actor
+from utils import env_process, get_action_size, ParameterServer
 
 if __name__ == '__main__':
-    mp = _mp.get_context('spawn')
+    mp.set_start_method('spawn')
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--actors", type=int, default=2,
+    parser.add_argument("--actors", type=int, default=4,
                         help="the number of actors to start, default is 8")
     parser.add_argument("--seed", type=int, default=123,
                         help="the seed of random, default is 123")
@@ -41,15 +43,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
     data = mp.Queue(maxsize=1)
     env_args = {'game_name': args.game_name, 'seed': args.seed}
-    action_space = Environment.get_action_size(env_args)
-    g_net = Network(action_space=action_space).share_memory()
-    learner = Learner(g_net, data, args.gamma, args.batch_size, args.baseline_cost,
-                      args.entropy_cost, args.lr, args.decay, args.momentum, args.epsilon)
-
-    actors = [Actor(idx, g_net, data, env_args, action_space, args.length,
-                    args.save_path, args.load_path)
+    action_space = get_action_size(env_args)
+    args.action_space = action_space
+    ps = ParameterServer()
+    model = Network(action_space=args.action_space)
+    ps.push(model.state_dict())
+    if torch.cuda.is_available():
+        model.cuda()
+    learner = mp.Process(target=learner, args=(model, data, ps, args))
+    envs, conns = list(zip(*[env_process(env_args) for _ in range(args.actors)]))
+    actors = [mp.Process(target=actor, args=(idx, ps, data, conns[idx], args))
               for idx in range(args.actors)]
     learner.start()
+    [env.start() for env in envs]
     [actor.start() for actor in actors]
     [actor.join() for actor in actors]
+    [env.join() for env in envs]
     learner.join()
