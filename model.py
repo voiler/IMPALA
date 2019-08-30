@@ -6,15 +6,15 @@ from utils import combine_time_batch
 
 
 class Network(nn.Module):
-    def __init__(self, action_space=16, input_channels=4, hidden_size=512):
+    def __init__(self, action_size=16, input_channels=4, hidden_size=512):
         super(Network, self).__init__()
-        self.action_space = action_space
+        self.action_space = action_size
         self.conv1 = nn.Conv2d(input_channels, 32, 8, stride=4, padding=1)
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, 3)
         self.fc = nn.Linear(3136, hidden_size)
-        self.lstm = nn.LSTMCell(hidden_size + action_space + 1, 256)
-        self.head = Head(action_space)
+        self.lstm = nn.LSTMCell(hidden_size + action_size + 1, 256)
+        self.head = Head(action_size)
 
     def forward(self, x, last_action, reward, dones, hx=None, actor=False):
         seq_len, bs, x, last_action, reward = combine_time_batch(x, last_action, reward, actor)
@@ -31,7 +31,7 @@ class Network(nn.Module):
         hx = hx.to(x.device)
         init_core_state = torch.zeros((2, bs, 256), dtype=torch.float32, device=x.device)
         for state, d in zip(torch.unbind(x, 0), torch.unbind(dones, 0)):
-            hx = torch.where(d.view(-1, 1, 1), init_core_state, hx)
+            hx = torch.where(d.view(1, -1, 1), init_core_state, hx)
             hx = self.lstm(state, hx.unbind(0))
             lstm_out.append(hx[0])
             hx = torch.stack(hx, 0)

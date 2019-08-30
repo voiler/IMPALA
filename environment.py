@@ -1,15 +1,12 @@
-import random
-from collections import deque
-import atari_py
-import torch
 import cv2
+import torch
+import random
+import atari_py
+import torch.multiprocessing as mp
+from collections import deque
 
-COMMAND_RESET = 0
-COMMAND_STEP = 1
-COMMAND_TERMINATE = 2
 
-
-class Env:
+class Atari:
     def __init__(self, game_name, seed, max_episode_length=1e10, history_length=4, reward_clip=1, device='cpu'):
         self.device = device
         self.ale = atari_py.ALEInterface()
@@ -90,7 +87,7 @@ class Env:
     def eval(self):
         self.training = False
 
-    def action_space(self):
+    def action_size(self):
         return len(self.actions)
 
     def close(self):
@@ -99,10 +96,70 @@ class Env:
             self.viewer = None
 
 
+class EnvironmentProxy(object):
+    def __init__(self, env_class, constructor_kwargs):
+        self.env_class = env_class
+        self._constructor_kwargs = constructor_kwargs
+
+    def start(self):
+        self.conn, conn_child = mp.Pipe()
+        self._process = mp.Process(target=self.worker, args=(self.env_class, self._constructor_kwargs, conn_child))
+        self._process.start()
+        result = self.conn.recv()
+        if isinstance(result, Exception):
+            raise result
+
+    def close(self):
+        try:
+            self.conn.send((2, None))
+            self.conn.close()
+        except IOError:
+            raise IOError
+        print("closed normal")
+        self._process.join()
+
+    def reset(self):
+        self.conn.send([0, None])
+        state = self.conn.recv()
+        if state is None:
+            raise ValueError
+        return state
+
+    def step(self, action):
+        self.conn.send([1, action])
+        state, reward, terminal = self.conn.recv()
+        return state, reward, terminal
+
+    def worker(self, env_class, constructor_kwargs, conn):
+        try:
+            env = env_class(**constructor_kwargs)
+            conn.send(None)  # Ready.
+            while True:
+                # Receive request.
+                command, arg = conn.recv()
+                if command == 0:
+                    conn.send(env.reset())
+                elif command == 1:
+                    conn.send(env.step(arg))
+                elif command == 2:
+                    env.close()
+                    conn.close()
+                    break
+                else:
+                    print("bad command: {}".format(command))
+        except Exception as e:
+            if 'env' in locals() and hasattr(env, 'close'):
+                try:
+                    env.close()
+                    print("closed error")
+                except:
+                    pass
+            conn.send(e)
 
 
-
-
-
-
-
+def get_action_size(env_class, env_args):
+    env = env_class(**env_args)
+    action_size = env.action_size()
+    env.close()
+    del env
+    return action_size

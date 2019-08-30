@@ -6,7 +6,7 @@ import vtrace
 from utils import make_time_major
 
 
-def learner(model, data, ps,args):
+def learner(model, data, ps, args):
     """Learner to get trajectories from Actors."""
     optimizer = optim.RMSprop(model.parameters(), lr=args.lr, eps=args.epsilon,
                               weight_decay=args.decay,
@@ -26,9 +26,9 @@ def learner(model, data, ps,args):
             trajectory.cuda()
         if len(batch) < batch_size:
             continue
-        behaviour_logits, states, actions, rewards, dones, hx = make_time_major(batch)
+        behaviour_logits, obs, actions, rewards, dones, hx = make_time_major(batch)
         optimizer.zero_grad()
-        logits, values = model(states, actions, rewards, dones, hx=hx)
+        logits, values = model(obs, actions, rewards, dones, hx=hx)
         bootstrap_value = values[-1]
         discounts = (~dones).float() * gamma
         vs, pg_advantages = vtrace.from_logits(
