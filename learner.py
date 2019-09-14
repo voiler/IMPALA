@@ -30,6 +30,8 @@ def learner(model, data, ps, args):
         optimizer.zero_grad()
         logits, values = model(obs, actions, rewards, dones, hx=hx)
         bootstrap_value = values[-1]
+        actions, behaviour_logits, dones, rewards = actions[1:], behaviour_logits[1:], dones[1:], rewards[1:]
+        logits, values = logits[:-1], values[:-1]
         discounts = (~dones).float() * gamma
         vs, pg_advantages = vtrace.from_logits(
             behaviour_policy_logits=behaviour_logits,
