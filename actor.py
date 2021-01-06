@@ -8,7 +8,6 @@
 import torch
 from model import Network
 
-
 class Trajectory(object):
     """class to store trajectory data."""
 
@@ -61,12 +60,12 @@ class Trajectory(object):
         return "ok"
 
 
-def actor(idx, ps, data, env, args):
+def actor(idx, model, data, env, args):
     """Simple actor """
     steps = 0
     length = args.length
     action_size = args.action_size
-    model = Network(action_size=action_size)
+    model_local = Network(action_size=action_size)
     init_hx = torch.zeros((2, 1, 256), dtype=torch.float32)
     # save_path = args.save_path
     # load_path = args.load_path
@@ -83,7 +82,7 @@ def actor(idx, ps, data, env, args):
     rewards = 0
     while True:
         # print("Actor: {} Steps: {} Reward: {}".format(idx, steps, rewards))
-        model.load_state_dict(ps.pull())
+        model_local.load_state_dict(model.state_dict())
         # print("Actor: {} load".format(idx))
         rollout = Trajectory()
         # print("Actor: {} trajectory init".format(idx))
@@ -106,7 +105,7 @@ def actor(idx, ps, data, env, args):
                     hx = init_hx
                     __, last_action, reward, done, _ = init_state
                     obs = env.reset()
-                action, logits, hx = model(obs.unsqueeze(0), last_action, reward,
+                action, logits, hx = model_local(obs.unsqueeze(0), last_action, reward,
                                            done, hx, actor=True)
                 obs, reward, done = env.step(action)
                 total_reward += reward

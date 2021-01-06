@@ -1,20 +1,5 @@
 import torch
 
-
-class ParameterServer(object):
-    def __init__(self, lock):
-        self.lock = lock
-        self.weight = None
-
-    def pull(self):
-        with self.lock:
-            return self.weight
-
-    def push(self, weigth):
-        with self.lock:
-            self.weight = weigth
-
-
 def make_time_major(batch):
     obs = []
     actions = []

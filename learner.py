@@ -6,7 +6,7 @@ import vtrace
 from utils import make_time_major
 
 
-def learner(model, data, ps, args):
+def learner(model, data, args):
     """Learner to get trajectories from Actors."""
     optimizer = optim.RMSprop(model.parameters(), lr=args.lr, eps=args.epsilon,
                               weight_decay=args.decay,
@@ -51,7 +51,6 @@ def learner(model, data, ps, args):
         loss.backward()
         optimizer.step()
         model.cpu()
-        ps.push(model.state_dict())
         if rewards.mean().item() > best:
             torch.save(model.state_dict(), save_path)
         if torch.cuda.is_available():
